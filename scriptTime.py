@@ -1,44 +1,44 @@
 import requests
 import json
 import time
+import urllib3
+import config
+from multiprocessing.dummy import Pool as ThreadPool
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def sendEvents(filename, url, token):
+#CONSTANTS
+filename = config.filename
+url = config.url
+token = config.token
+authHeader = {'Authorization': 'Splunk %s' % (token)}
+numThreads = 8
+counter = 0
 
-    data = []
-    r = []
-    counter = 0
-    authHeader = {'Authorization': 'Splunk %s' % (token)}
+def sendEvent(event):
 
-    with open(filename) as jsonFile:
-        for event in jsonFile:
-            #import pdb; pdb.set_trace()
-            try:
-                
-                #loading in json events
-                data = json.loads(event) 
-                epochTime = convertToEpoch(data['result']['_time'])
+    global counter
+    try:
+        epochTime = convertToEpoch(event['result']['_time'])
 
-                #sending metadata + event data
-                jsonDict = {"index": data['result']['index'], "sourcetype": data['result']['sourcetype'],
-                "source": data['result']['source'], "time": epochTime, "event": data['result']['_raw']}
+        #sending metadata + event data
+        jsonDict = {"index": event['result']['index'], "sourcetype": event['result']['sourcetype'],
+        "source": event['result']['source'], "time": epochTime, "event": event['result']['_raw']}       
+
+    except:
+        print ("Error found, script stopped. Before error, we sent %d events to Splunk." % counter)
+
+    else:
+        #call request to send event to HEC
+        r = requests.post(url, headers=authHeader, json=jsonDict, verify=False)
+
+        #if event is not successfully sent through HEC
+        if r.text != '{"text":"Success","code":0}':
+            print ("Error found, script stopped. Before error, we sent %d events to Splunk." % counter)
             
-
-            except:
-                print ("Error found, script stopped. Before error, we sent %d events to Splunk." % counter)
-
-            else:
-                r = requests.post(url, headers=authHeader, json=jsonDict, verify=False)
-
-                #if event is not successfully sent through HEC
-                if r.text != '{"text":"Success","code":0}':
-                    print(r.text)
-                    print ("Error found, script stopped. Before error, we sent %d events to Splunk." % counter)
-                    break
-
-                print(r.text)
-            
-            #keep track of how many events are being sent to Splunk
-            counter = counter + 1
+    print(r.text)        
+    
+    #keep track of how many events are being sent to Splunk
+    counter +=1
 
 
 #converting timestamp to Epoch
@@ -47,14 +47,24 @@ def convertToEpoch(jsonTime):
     epochTime = time.mktime(time.strptime(jsonTime, '%Y-%m-%dT%H:%M:%S.%f%z'))
     return epochTime
 
-def main():
 
-    inputFile = input("Name of File: ")
-    inputURL = input("URL: ")
-    inputToken = input("Token: ")
-    sendEvents(inputFile, inputURL, inputToken)
+def main():
+    
+    #initalize linked array
+    data = []
+
+    #read json file and load in events into array
+    with open(filename) as json_file:
+        for line in json_file:
+            data.append(json.loads(line))
+
+    #set number of threads
+    pool = ThreadPool(numThreads)
+
+    #python multithreading - pool.map(my_function, my_array) 
+    results = pool.map(sendEvent, data)
+    print(counter)
+    pool.close()
+    pool.join()
 
 main()
-#load in file
-#my_function = takes 1 json file sends to HEC
-#30000 linked array, where each element = json file <- my_array
