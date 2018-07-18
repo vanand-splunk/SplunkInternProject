@@ -1,0 +1,5 @@
+# Rename this file to config.py
+
+filename = "my_file.json"
+url = "my_url"
+token = "my_token"
